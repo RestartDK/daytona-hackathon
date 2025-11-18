@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { GenerationContext, Rule } from "../types/index.ts";
 
 const DEFAULT_MODEL = process.env.CLAUDE_MODEL ?? "claude-3-7-sonnet-latest";
+const STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13";
 
 function assertEnvVar(name: string): string {
   const value = process.env[name];
@@ -10,6 +11,67 @@ function assertEnvVar(name: string): string {
   }
   return value;
 }
+
+type StructuredRule = {
+  rule_id: string;
+  rule_name: string;
+  description: string;
+  policy_reference: string;
+  applies_to_roles?: string[];
+  python_code: string;
+};
+
+const RULE_GENERATION_SCHEMA = {
+  type: "object",
+  properties: {
+    rules: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          rule_id: {
+            type: "string",
+            description: "Machine-readable identifier for the rule (snake_case).",
+          },
+          rule_name: {
+            type: "string",
+            description: "Human-readable name for the rule.",
+          },
+          description: {
+            type: "string",
+            description: "Short explanation of what the rule enforces.",
+          },
+          policy_reference: {
+            type: "string",
+            description: "Policy section reference, e.g. 'Section 3.2.1'.",
+          },
+          applies_to_roles: {
+            type: "array",
+            items: { type: "string" },
+            description: "Roles this rule applies to. Use [] for ALL roles.",
+            default: [],
+          },
+          python_code: {
+            type: "string",
+            description:
+              "Complete Python function named 'rule' that checks employee/security data and returns {'allowed': bool, 'reason': str | None, 'policy_ref': str | None}.",
+          },
+        },
+        required: [
+          "rule_id",
+          "rule_name",
+          "description",
+          "policy_reference",
+          "python_code",
+        ],
+        additionalProperties: false,
+      },
+      default: [],
+    },
+  },
+  required: ["rules"],
+  additionalProperties: false,
+} as const;
 
 export class LLMGenerator {
   private client: Anthropic;
@@ -23,8 +85,7 @@ export class LLMGenerator {
 
   async generateRules(context: GenerationContext): Promise<Rule[]> {
     const prompt = buildInitialPrompt(context);
-    const response = await this.sendPrompt(prompt);
-    return parseRulesFromResponse(response);
+    return this.requestStructuredRules(prompt);
   }
 
   async regenerateRule(context: GenerationContext): Promise<Rule[]> {
@@ -32,81 +93,131 @@ export class LLMGenerator {
       throw new Error("previous_attempt is required when regenerating a rule");
     }
     const prompt = buildRegenerationPrompt(context);
-    const response = await this.sendPrompt(prompt);
-    return parseRulesFromResponse(response);
+    return this.requestStructuredRules(prompt);
   }
 
-  private async sendPrompt(prompt: string): Promise<string> {
-    const message = await this.client.messages.create({
+  private async requestStructuredRules(prompt: string): Promise<Rule[]> {
+    const message = await this.client.beta.messages.create({
       model: this.model,
-      max_tokens: 3000,
+      max_tokens: 4000,
       temperature: 0,
+      betas: [STRUCTURED_OUTPUTS_BETA],
       messages: [
         {
           role: "user",
           content: prompt,
         },
       ],
+      output_format: {
+        type: "json_schema",
+        schema: RULE_GENERATION_SCHEMA,
+      },
     });
 
     const blocks = message.content ?? [];
     const textBlock = blocks.find(
       (block) => block.type === "text",
     ) as { text: string } | undefined;
-    if (!textBlock || !textBlock.text) {
-      throw new Error("Anthropic response did not contain text content");
+    if (!textBlock?.text?.trim()) {
+      throw new Error("LLM did not return structured rule output.");
     }
-    return textBlock.text.trim();
+
+    let parsed: { rules?: StructuredRule[] };
+    try {
+      parsed = JSON.parse(textBlock.text) as { rules?: StructuredRule[] };
+    } catch (error) {
+      throw new Error(
+        `Failed to parse structured rule output: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    const structuredRules = parsed.rules ?? [];
+    const mapped = structuredRules
+      .map((rule) => convertStructuredRule(rule))
+      .filter((rule): rule is Rule => Boolean(rule));
+
+    return mapped;
   }
+}
+
+function convertStructuredRule(candidate: StructuredRule): Rule | null {
+  const baseFieldsPresent =
+    candidate.rule_id &&
+    candidate.rule_name &&
+    candidate.description &&
+    candidate.policy_reference &&
+    candidate.python_code;
+
+  if (!baseFieldsPresent) {
+    console.warn(
+      "Skipping structured rule because required fields were missing:",
+      candidate,
+    );
+    return null;
+  }
+
+  const appliesToRoles = Array.isArray(candidate.applies_to_roles)
+    ? candidate.applies_to_roles.filter((role) => role && role.trim().length)
+    : [];
+
+  return {
+    rule_id: candidate.rule_id,
+    rule_name: candidate.rule_name,
+    description: candidate.description,
+    policy_reference: candidate.policy_reference,
+    python_code: candidate.python_code,
+    applies_to_roles: appliesToRoles,
+    active: true,
+    generation_attempt: 1,
+    validation_history: [],
+  };
 }
 
 function buildInitialPrompt(context: GenerationContext): string {
   return [
     "You are an expert compliance engineer. Convert the provided policy text into executable Python compliance rules.",
     "",
-    "IMPORTANT: The employee object passed to rules has this structure:",
-    "- employee.id: string (employee identifier)",
-    "- employee.role: string (e.g., 'Equity Research Analyst - Technology', 'VP - Healthcare Investment Banking')",
-    "- employee.tier: number (1-4, where 1 is most restricted)",
-    "- employee.department: string (e.g., 'Research', 'Investment Banking', 'Trading')",
-    "- employee.sector: string (e.g., 'Technology', 'Healthcare')",
-    "- employee.restricted_tickers: string[] (list of ticker symbols employee CANNOT trade)",
-    "- employee.can_trade: string[] (list of ticker symbols employee IS ALLOWED to trade, may be empty)",
-    "- employee.coverage_stocks: array of objects with {ticker, company, rating, price_target} (for research analysts - stocks they cover)",
-    "- employee.active_deals: array of objects with {ticker, deal_type, reason} (for bankers - active deals they're working on)",
+    "Employee object schema (JSON):",
+    JSON.stringify(
+      {
+        id: "string",
+        role:
+          "string, e.g. 'Equity Research Analyst - Technology', 'VP - Healthcare Investment Banking'",
+        tier: "number (1-4, where 1 is most restricted)",
+        department: "string",
+        sector: "string",
+        restricted_tickers: "string[] - ALWAYS block these tickers",
+        can_trade: "string[] - allowed tickers for tier-based exceptions",
+        coverage_stocks:
+          "Array<{ticker, company, rating, price_target}> - for analysts",
+        active_deals:
+          "Array<{ticker, deal_type, reason}> - for bankers with live deals",
+      },
+      null,
+      2,
+    ),
     "",
-    "The security object has:",
-    "- security.ticker: string (uppercase ticker symbol)",
-    "- security.earnings_date: string (optional, ISO date format)",
-    "- security.market_cap: number (optional)",
+    "Security object example:",
+    JSON.stringify(
+      {
+        ticker: "TSLA",
+        earnings_date: "2025-11-20 (ISO)",
+        last_earnings_date: "2025-08-15",
+        next_earnings_date: "2025-11-20",
+        market_cap: 1_000_000_000,
+      },
+      null,
+      2,
+    ),
     "",
-    "Rules must check these fields to enforce restrictions. Examples:",
-    "- Check if security.ticker is in employee.restricted_tickers (block if found)",
-    "- For analysts, check if security.ticker matches any coverage_stocks[].ticker (block if analyst covers it)",
-    "- Check employee.tier for tier-based restrictions (tier 1 is most restricted)",
-    "- Check employee.active_deals for deal-related restrictions",
-    "- Check employee.can_trade list for tier-based allowed securities",
-    "",
-    "Rules must follow this exact template:",
-    "---RULE START---",
-    "RULE_ID: <machine_id>",
-    "RULE_NAME: <human readable>",
-    "DESCRIPTION: <concise explanation>",
-    "POLICY_REF: <policy section reference>",
-    "APPLIES_TO: <comma separated roles or ALL>",
-    "```python",
-    "def rule(employee, security, trade_date):",
-    "    \"\"\"Explain what the rule enforces.\"\"\"",
-    "    # logic that returns {\"allowed\": bool, \"reason\": str | None, \"policy_ref\": str | None}",
-    "```",
-    "---RULE END---",
-    "",
-    "Constraints:",
-    "- Only use Python stdlib.",
-    "- Do NOT import os, subprocess, pathlib, sys, or perform IO.",
-    "- Return a dict with boolean `allowed`, optional `reason`, and optional `policy_ref`.",
-    "- Always check employee.restricted_tickers first - if ticker is in that list, block the trade.",
-    "- For analysts, check coverage_stocks to see if they cover the security.",
+    "Rules must:",
+    "- Always check employee.restricted_tickers first.",
+    "- For analysts, block trades in coverage_stocks unless explicit pre-approval is recorded in employee data.",
+    "- Respect employee tiers (tier 1 is most restricted).",
+    "- Return a dict with boolean 'allowed', and optional 'reason' / 'policy_ref'.",
+    "- Use only Python stdlib.",
     "",
     `Firm: ${context.firm_name}`,
     "Policy text:",
@@ -121,13 +232,10 @@ function buildRegenerationPrompt(context: GenerationContext): string {
     "Original policy text and firm context remain the same.",
     "Revise the rule while keeping the same intent.",
     "",
-    "IMPORTANT: The employee object has this structure:",
-    "- employee.restricted_tickers: string[] (list of tickers employee CANNOT trade - check this first!)",
-    "- employee.coverage_stocks: array of {ticker, company, rating, price_target} (for analysts)",
-    "- employee.can_trade: string[] (allowed tickers for tier-based restrictions)",
-    "- employee.active_deals: array of {ticker, deal_type, reason} (for bankers)",
-    "- employee.tier: number (1-4, where 1 is most restricted)",
-    "- employee.role: string (check for 'analyst', 'banker', etc.)",
+    "Employee data reminders:",
+    "- employee.restricted_tickers: string[] — block immediately if ticker is here.",
+    "- employee.coverage_stocks: array<{ticker,...}> — analysts must not trade these without pre-approval data in employee object.",
+    "- employee.tier: number — tier 1 is most restricted.",
     "",
     "Previous attempt code:",
     "```python",
@@ -140,69 +248,10 @@ function buildRegenerationPrompt(context: GenerationContext): string {
     "Test results / runtime output:",
     previous.test_results,
     "",
-    "Return ONLY properly formatted rules using the previously defined schema. Do not include commentary.",
-    "Make sure to check employee.restricted_tickers and other employee fields correctly.",
+    "Return ONLY structured rules that match the provided schema. Do not include commentary.",
     "",
     `Firm: ${context.firm_name}`,
     "Policy text:",
     context.policy_text,
   ].join("\n");
-}
-
-export function parseRulesFromResponse(response: string): Rule[] {
-  const rules: Rule[] = [];
-  const segments = response.split("---RULE START---").slice(1);
-
-  for (const segment of segments) {
-    const [body] = segment.split("---RULE END---");
-    if (!body) {
-      continue;
-    }
-
-    const ruleId = matchField(body, "RULE_ID");
-    const ruleName = matchField(body, "RULE_NAME");
-    const description = matchField(body, "DESCRIPTION");
-    const policyReference = matchField(body, "POLICY_REF");
-    const appliesTo = matchField(body, "APPLIES_TO");
-    const pythonCode = matchPythonBlock(body);
-
-    if (!ruleId || !ruleName || !description || !policyReference || !pythonCode) {
-      console.warn("Skipping malformed rule block:", body);
-      continue;
-    }
-
-    const appliesToRoles =
-      appliesTo?.trim().toUpperCase() === "ALL"
-        ? []
-        : appliesTo
-            .split(",")
-            .map((role) => role.trim())
-            .filter(Boolean);
-
-    rules.push({
-      rule_id: ruleId,
-      rule_name: ruleName,
-      description,
-      policy_reference: policyReference,
-      python_code: pythonCode,
-      applies_to_roles: appliesToRoles,
-      active: true,
-      generation_attempt: 1,
-      validation_history: [],
-    });
-  }
-
-  return rules;
-}
-
-function matchField(body: string, field: string): string {
-  const regex = new RegExp(`${field}:\\s*(.+)`);
-  const match = body.match(regex);
-  return match && match[1] !== undefined ? match[1].trim() : "";
-}
-
-function matchPythonBlock(body: string): string | null {
-  const regex = /```python([\s\S]*?)```/;
-  const match = body.match(regex);
-  return match && match[1] !== undefined ? match[1].trim() : null;
 }
