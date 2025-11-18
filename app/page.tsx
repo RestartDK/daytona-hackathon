@@ -1,103 +1,86 @@
-import Image from "next/image";
+"use client"
+
+import { useState } from "react";
+import { PartyPopper, ShieldCheck, Sparkles } from "lucide-react";
 
 export default function Home() {
+  const [position, setPosition] = useState("Financial Advisor");
+  const [company, setCompany] = useState("Goldman Sacks");
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-blue-50 text-slate-900">
+      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-10 md:py-14">
+        <header className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white/80 px-5 py-3 shadow-sm backdrop-blur">
+          <div className="flex items-center gap-2 text-lg font-semibold tracking-tight text-slate-800">
+            <ShieldCheck className="h-5 w-5 text-emerald-500" />
+            Compliance Bro
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-slate-600">
+              UI draft
+            </span>
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-amber-100 text-xl shadow-inner">
+              <PartyPopper className="h-5 w-5 text-amber-600" />
+            </div>
+          </div>
+        </header>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+        <main className="flex flex-col gap-5">
+          <section className="rounded-3xl border border-slate-200/80 bg-white/80 p-6 shadow-lg backdrop-blur md:p-8">
+            <div className="flex flex-wrap items-center gap-4 text-3xl font-semibold leading-tight text-slate-900 md:text-4xl">
+              <span className="text-slate-800">I&apos;m</span>
+              <input
+                value={position}
+                onChange={(event) => setPosition(event.target.value)}
+                placeholder="Your role"
+                className="h-[52px] min-w-[200px] rounded-2xl border border-slate-200/90 bg-white px-4 text-lg font-semibold text-slate-800 shadow-sm outline-none transition focus:-translate-y-0.5 focus:border-emerald-400 focus:shadow"
+              />
+              <span className="text-slate-800 text-2xl md:text-3xl">at</span>
+              <input
+                value={company}
+                onChange={(event) => setCompany(event.target.value)}
+                placeholder="Your company"
+                className="h-[52px] min-w-[200px] rounded-2xl border border-slate-200/90 bg-white px-4 text-lg font-semibold text-slate-800 shadow-sm outline-none transition focus:-translate-y-0.5 focus:border-emerald-400 focus:shadow"
+              />
+            </div>
+            <p className="mt-3 max-w-2xl text-sm text-slate-500 md:text-base">
+              State-backed inputs with defaults: Financial Advisor at Goldman
+              Sacks. Edit to preview other contexts—we&apos;ll wire this to your
+              profile soon.
+            </p>
+          </section>
+
+          <section className="rounded-3xl border border-slate-200/80 bg-white/90 p-6 shadow-lg backdrop-blur md:p-8">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
+              <Sparkles className="h-4 w-4 text-emerald-500" />
+              Ask a compliance question
+            </div>
+            <p className="mt-3 text-sm text-slate-600 md:text-base">
+              We&apos;ll wire this up soon. For now, try a sample question or type your
+              own.
+            </p>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+              <input
+                type="text"
+                placeholder="Can I buy APPLE stock?"
+                className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-slate-800 shadow-sm outline-none transition placeholder:text-slate-400 focus:-translate-y-0.5 focus:border-emerald-400 focus:shadow-md"
+              />
+              <button className="inline-flex h-12 items-center justify-center rounded-xl border border-emerald-500 bg-emerald-500 px-5 text-sm font-semibold text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 active:translate-y-0">
+                Send
+              </button>
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+              <span className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-700">
+                Privacy-safe
+              </span>
+              <span className="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-700">
+                Draft UI
+              </span>
+            </div>
+          </section>
+        </main>
+      </div>
     </div>
   );
 }
